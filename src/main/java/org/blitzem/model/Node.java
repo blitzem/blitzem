@@ -1,13 +1,13 @@
-package com.github.rnorth.blitzemj.model;
+package org.blitzem.model;
 
-import com.github.rnorth.blitzemj.TaggedAndNamedItem;
-import com.github.rnorth.blitzemj.TaggedItemRegistry;
-import com.github.rnorth.blitzemj.commands.CommandException;
 import com.google.common.base.Charsets;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.io.Files;
+import org.blitzem.TaggedAndNamedItem;
+import org.blitzem.TaggedItemRegistry;
+import org.blitzem.commands.CommandException;
 import org.jclouds.compute.ComputeService;
 import org.jclouds.compute.RunNodesException;
 import org.jclouds.compute.domain.*;

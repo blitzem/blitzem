@@ -1,12 +1,13 @@
 package com.github.rnorth.blitzemj;
 
-import com.github.rnorth.blitzemj.commands.StatusCommand;
-import com.github.rnorth.blitzemj.model.ExecutionContext;
-import com.github.rnorth.blitzemj.model.LoadBalancer;
-import com.github.rnorth.blitzemj.model.Node;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.blitzem.TaggedItemRegistry;
+import org.blitzem.commands.StatusCommand;
+import org.blitzem.model.ExecutionContext;
+import org.blitzem.model.LoadBalancer;
+import org.blitzem.model.Node;
 import org.jclouds.compute.ComputeService;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.domain.Location;

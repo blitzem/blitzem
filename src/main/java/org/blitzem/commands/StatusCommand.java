@@ -1,12 +1,12 @@
-package com.github.rnorth.blitzemj.commands;
+package org.blitzem.commands;
 
 import ch.qos.logback.classic.Logger;
-import com.github.rnorth.blitzemj.TaggedItemRegistry;
-import com.github.rnorth.blitzemj.model.ExecutionContext;
-import com.github.rnorth.blitzemj.model.LoadBalancer;
-import com.github.rnorth.blitzemj.model.Node;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.blitzem.TaggedItemRegistry;
+import org.blitzem.model.ExecutionContext;
+import org.blitzem.model.LoadBalancer;
+import org.blitzem.model.Node;
 import org.jclouds.compute.ComputeService;
 import org.jclouds.compute.domain.NodeMetadata;
 import org.jclouds.loadbalancer.LoadBalancerService;

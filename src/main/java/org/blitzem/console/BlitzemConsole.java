@@ -1,16 +1,16 @@
-package com.github.rnorth.blitzemj.console;
+package org.blitzem.console;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
-import com.github.rnorth.blitzemj.TaggedItemRegistry;
-import com.github.rnorth.blitzemj.commands.*;
-import com.github.rnorth.blitzemj.model.Defaults;
-import com.github.rnorth.blitzemj.model.ExecutionContext;
-import com.github.rnorth.blitzemj.model.LoadBalancer;
-import com.github.rnorth.blitzemj.model.Node;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Module;
 import groovy.lang.GroovyShell;
+import org.blitzem.TaggedItemRegistry;
+import org.blitzem.commands.*;
+import org.blitzem.model.Defaults;
+import org.blitzem.model.ExecutionContext;
+import org.blitzem.model.LoadBalancer;
+import org.blitzem.model.Node;
 import org.codehaus.groovy.control.CompilationFailedException;
 import org.jclouds.compute.ComputeService;
 import org.jclouds.compute.ComputeServiceContext;
