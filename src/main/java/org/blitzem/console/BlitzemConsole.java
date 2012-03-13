@@ -1,32 +1,36 @@
 package org.blitzem.console;
 
-import ch.qos.logback.classic.Level;
-import ch.qos.logback.classic.Logger;
-import com.google.common.collect.ImmutableSet;
-import com.google.inject.Module;
 import groovy.lang.GroovyShell;
-import org.blitzem.TaggedItemRegistry;
-import org.blitzem.commands.*;
-import org.blitzem.model.Defaults;
-import org.blitzem.model.ExecutionContext;
-import org.blitzem.model.LoadBalancer;
-import org.blitzem.model.Node;
-import org.codehaus.groovy.control.CompilationFailedException;
-import org.jclouds.compute.ComputeService;
-import org.jclouds.compute.ComputeServiceContext;
-import org.jclouds.compute.ComputeServiceContextFactory;
-import org.jclouds.loadbalancer.LoadBalancerService;
-import org.jclouds.loadbalancer.LoadBalancerServiceContext;
-import org.jclouds.loadbalancer.LoadBalancerServiceContextFactory;
-import org.jclouds.logging.slf4j.config.SLF4JLoggingModule;
-import org.jclouds.ssh.jsch.config.JschSshClientModule;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Properties;
+
+import org.blitzem.TaggedItemRegistry;
+import org.blitzem.commands.BaseCommand;
+import org.blitzem.commands.Command;
+import org.blitzem.commands.DownCommand;
+import org.blitzem.commands.HelpCommand;
+import org.blitzem.commands.PerLoadBalancerCommand;
+import org.blitzem.commands.PerNodeCommand;
+import org.blitzem.commands.StatusCommand;
+import org.blitzem.commands.UpCommand;
+import org.blitzem.commands.WholeEnvironmentCommand;
+import org.blitzem.model.Defaults;
+import org.blitzem.model.ExecutionContext;
+import org.blitzem.model.LoadBalancer;
+import org.blitzem.model.Node;
+import org.codehaus.groovy.control.CompilationFailedException;
+import org.jclouds.compute.ComputeServiceContext;
+import org.jclouds.loadbalancer.LoadBalancerServiceContext;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+
+import com.google.common.base.Throwables;
 
 /**
  * Main Blitzem console entry point.
@@ -37,8 +41,8 @@ import java.util.Properties;
 public class BlitzemConsole {
 
 	private static final Logger CONSOLE_LOG = (Logger) LoggerFactory.getLogger(BlitzemConsole.class);
-	private static ComputeServiceContext computeServiceContext;
-	private static LoadBalancerServiceContext loadBalancerServiceContext;
+	public static final Class<? extends Command>[] SUPPORTED_COMMANDS = new Class[] {UpCommand.class, DownCommand.class, StatusCommand.class};
+	public static ExecutionContext executionContext;
 
 	/**
 	 * @param args
@@ -47,9 +51,17 @@ public class BlitzemConsole {
 	 */
 	public static void main(String[] args) throws Exception {
 
-		BaseCommand command = (BaseCommand) new CommandArgsParser(UpCommand.class, DownCommand.class, StatusCommand.class).useDefault(
+		/*
+		 * Parse command line arguments into a Command object for subsequent
+		 * execution.
+		 */
+		BaseCommand command = (BaseCommand) new CommandArgsParser(SUPPORTED_COMMANDS).useDefault(
 				HelpCommand.class).parse(args);
 
+		/*
+		 * Use the --verbose or --superVerbose command line flags to change the
+		 * Logback log level.
+		 */
 		Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
 		Logger jclouds = (Logger) LoggerFactory.getLogger("jclouds");
 		if (command.isVerbose()) {
@@ -62,54 +74,41 @@ public class BlitzemConsole {
 
 		loadEnvironmentFile(command);
 
-		loadContext();
+		try {
+			loadContext();
 
-		ComputeService computeService = computeServiceContext!=null ? computeServiceContext.getComputeService() : null;
-		LoadBalancerService loadBalancerService = loadBalancerServiceContext!=null ? loadBalancerServiceContext.getLoadBalancerService() : null;
-
-        ExecutionContext executionContext = new ExecutionContext(computeService, loadBalancerService);
-
-
-        try {
-
-			if (command instanceof WholeEnvironmentCommand && computeService!=null && loadBalancerService!=null) {
+			if (command instanceof WholeEnvironmentCommand) {
 				CONSOLE_LOG.info("Applying command {} to whole environment", command.getClass().getSimpleName());
-				((WholeEnvironmentCommand) command).execute(executionContext);
+				((WholeEnvironmentCommand) command).execute(executionContext.getDriver());
 			} else if (command instanceof PerNodeCommand) {
-				
-				if (computeService!=null) {
-					for (Node node : TaggedItemRegistry.getInstance().findMatching(command.getNoun(), Node.class)) {
-						CONSOLE_LOG.info("Applying command {} to node '{}'", command.getClass().getSimpleName(), node.getName());
-						((PerNodeCommand) command).execute(node, executionContext);
-					}
-				}
-				
-				if (loadBalancerService!=null) {
-					for (LoadBalancer loadBalancer : TaggedItemRegistry.getInstance().findMatching(command.getNoun(), LoadBalancer.class)) {
-						CONSOLE_LOG.info("Applying command {} to load balancer '{}'", command.getClass().getSimpleName(),
-								loadBalancer.getName());
-						((PerLoadBalancerCommand) command).execute(loadBalancer, executionContext);
-					}
+
+				for (Node node : TaggedItemRegistry.getInstance().findMatching(command.getNoun(), Node.class)) {
+					CONSOLE_LOG.info("Applying command {} to node '{}'", command.getClass().getSimpleName(), node.getName());
+					((PerNodeCommand) command).execute(node, executionContext.getDriver());
 				}
 
-				if (computeService!=null && loadBalancerService!=null) {
-					// always display status
-					new StatusCommand().execute(executionContext);
+				for (LoadBalancer loadBalancer : TaggedItemRegistry.getInstance().findMatching(command.getNoun(), LoadBalancer.class)) {
+					CONSOLE_LOG.info("Applying command {} to load balancer '{}'", command.getClass().getSimpleName(),
+							loadBalancer.getName());
+					((PerLoadBalancerCommand) command).execute(loadBalancer, executionContext.getDriver());
 				}
+
+				// always display status
+				new StatusCommand().execute(executionContext.getDriver());
 			}
 
-		} catch (CommandException e) {
-			System.err.println("An unexpected error occurred: ");
-			e.printStackTrace(System.err);
+		} catch (RuntimeException e) {
+			CONSOLE_LOG.error("An unexpected error occurred: \n{}", e.getMessage());
+			// Have to call exit in case another thread is holding the app open (e.g. JClouds spawns some)
+			System.exit(1);
 		} finally {
-			if (computeServiceContext!=null) {
-				computeServiceContext.close();
-			}
-			if (loadBalancerService!=null) {
-				loadBalancerServiceContext.close();
+			if (executionContext != null) {
+				executionContext.close();
 			}
 		}
-
+		
+		// Have to call exit in case another thread is holding the app open (e.g. JClouds spawns some)
+		System.exit(0);
 	}
 
 	/**
@@ -124,50 +123,25 @@ public class BlitzemConsole {
 	private static void loadContext() throws IOException {
 		File cloudConfigFile = new File(System.getProperty("user.home") + "/.blitzem/config.properties");
 		if (!cloudConfigFile.exists() && !cloudConfigFile.isFile()) {
-			System.err.println("Could not find required cloud configuration properties file - expected at: " + cloudConfigFile);
+			CONSOLE_LOG.error("Could not find required cloud configuration properties file - expected at: " + cloudConfigFile.getCanonicalPath() + "\n" +
+					"Please ensure this file is in place, if necessary using the template in docs/config.properties.template");
 			throw new RuntimeException();
 		}
 
 		Properties cloudConfigProperties = new Properties();
-        FileInputStream fileInputStream = null;
-        try {
-            fileInputStream = new FileInputStream(cloudConfigFile);
-            cloudConfigProperties.load(fileInputStream);
-        } finally {
-            if (fileInputStream!=null) {
-                fileInputStream.close();
-            }
-        }
-
-		String cloudComputeProvider = cloudConfigProperties.getProperty("compute-provider");
-		String cloudComputeAccessKeyId = cloudConfigProperties.getProperty("compute-accesskeyid");
-		String cloudComputeSecretKey = cloudConfigProperties.getProperty("compute-secretkey");
-		
-		if (cloudComputeProvider == null || cloudComputeAccessKeyId == null || cloudComputeSecretKey == null) {
-			CONSOLE_LOG.warn("Did not find expected compute-provider, compute-accesskeyid or compute-secretkey defined in " + cloudConfigFile);
-			CONSOLE_LOG.warn("No Cloud Compute nodes will be managed!");
-			
-		} else {
-			computeServiceContext = new ComputeServiceContextFactory().createContext(cloudComputeProvider, cloudComputeAccessKeyId, cloudComputeSecretKey,
-					ImmutableSet.<Module> of(new JschSshClientModule(), new SLF4JLoggingModule()));
+		FileInputStream fileInputStream = null;
+		try {
+			fileInputStream = new FileInputStream(cloudConfigFile);
+			cloudConfigProperties.load(fileInputStream);
+		} finally {
+			if (fileInputStream != null) {
+				fileInputStream.close();
+			}
 		}
 
-		String cloudLBProvider = cloudConfigProperties.getProperty("loadbalancer-provider");
-		String cloudLBAccessKeyId = cloudConfigProperties.getProperty("loadbalancer-accesskeyid");
-		String cloudLBSecretKey = cloudConfigProperties.getProperty("loadbalancer-secretkey");
-		
-		if (cloudLBProvider == null || cloudLBAccessKeyId == null || cloudLBSecretKey == null) {
-			CONSOLE_LOG.warn("Did not find expected loadbalancer-provider, loadbalancer-accesskeyid or loadbalancer-secretkey defined in " + cloudConfigFile);
-			CONSOLE_LOG.warn("No Cloud Load Balancers will be managed!");
-			
-		} else {
-			loadBalancerServiceContext = new LoadBalancerServiceContextFactory().createContext("cloudloadbalancers-uk", cloudComputeAccessKeyId, cloudComputeSecretKey,
-					ImmutableSet.<Module> of(new JschSshClientModule(), new SLF4JLoggingModule()));
-		}
+		executionContext = new ExecutionContext(cloudConfigProperties, cloudConfigFile);
 
-		
-
-		CONSOLE_LOG.info("Connected to Cloud Compute API as {}", cloudComputeAccessKeyId);
+		CONSOLE_LOG.info("Connected to Cloud API ");
 	}
 
 	/**
@@ -187,11 +161,12 @@ public class BlitzemConsole {
 			groovyShell.setVariable("defaults", Defaults.DEFAULTS);
 			groovyShell.evaluate(sourceFile);
 		} catch (CompilationFailedException e) {
-			System.err.println("Failed to parse environment definition file: " + sourceFile);
-			System.err.println(e.getMessage());
+			CONSOLE_LOG.error("Failed to parse environment definition file: {} with error message:\n{}", sourceFile, e.getMessage());
 			throw new RuntimeException();
 		} catch (IOException e) {
-			System.err.println("Could not open environment definition file: " + sourceFile);
+			CONSOLE_LOG.error("Could not open environment definition file expected at {}. Please ensure you are " +
+					"running the blitzem command from the directory containing the environment file, or use " +
+					"the --source=path argument to specify an alternative path", sourceFile);
 			throw new RuntimeException();
 		}
 	}

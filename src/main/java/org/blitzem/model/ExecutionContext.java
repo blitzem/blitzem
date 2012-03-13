@@ -1,42 +1,105 @@
 package org.blitzem.model;
 
-import org.jclouds.compute.ComputeService;
-import org.jclouds.loadbalancer.LoadBalancerService;
+import java.io.File;
+import java.util.Properties;
+import java.util.Set;
+
+import org.blitzem.provider.api.AWSDriver;
+import org.blitzem.provider.api.Driver;
+import org.blitzem.provider.api.GenericDriver;
+import org.blitzem.provider.api.RackspaceUKDriver;
+import org.slf4j.LoggerFactory;
+
+import ch.qos.logback.classic.Logger;
+
+import com.google.common.base.Throwables;
+import com.google.common.collect.Sets;
+import com.google.inject.CreationException;
+import com.google.inject.spi.Message;
 
 /**
- * Created by IntelliJ IDEA.
- * User: richardnorth
- * Date: 07/01/2012
- * Time: 17:24
- * To change this template use File | Settings | File Templates.
+ * Encapsulates the configuration/driver-selection specific aspects of
+ * connecting to the cloud API.
+ * 
+ * @author Richard North <rich.north@gmail.com>
+ * 
  */
 public class ExecutionContext {
 
-    private ComputeService computeService;
-    private LoadBalancerService loadBalancerService;
+	private Properties cloudConfigProperties;
+	private File cloudConfigFile;
+	protected String cloudComputeProvider;
+	protected String cloudComputeAccessKeyId;
+	protected String cloudComputeSecretKey;
+	protected String cloudLBProvider;
+	protected String cloudLBAccessKeyId;
+	protected String cloudLBSecretKey;
+	private Driver driver;
 
-    public ExecutionContext(ComputeService computeService) {
-        this.computeService = computeService;
-    }
+	private static final Logger CONSOLE_LOG = (Logger) LoggerFactory.getLogger(ExecutionContext.class);
 
-    public ExecutionContext(ComputeService computeService, LoadBalancerService loadBalancerService) {
-        this.loadBalancerService = loadBalancerService;
-        this.computeService = computeService;
-    }
+	/**
+	 * Create a new {@link ExecutionContext} based on given configuration
+	 * properties.
+	 * 
+	 * @param cloudConfigProperties
+	 * @param cloudConfigFile
+	 *            only used to report the filename to the user in event of a
+	 *            problem.
+	 */
+	public ExecutionContext(Properties cloudConfigProperties, File cloudConfigFile) {
+		this.cloudConfigProperties = cloudConfigProperties;
+		this.cloudConfigFile = cloudConfigFile;
 
-    public ComputeService getComputeService() {
-        return computeService;
-    }
+		cloudComputeProvider = cloudConfigProperties.getProperty("compute-provider");
+		cloudComputeAccessKeyId = cloudConfigProperties.getProperty("compute-accesskeyid");
+		cloudComputeSecretKey = cloudConfigProperties.getProperty("compute-secretkey");
 
-    public void setComputeService(ComputeService computeService) {
-        this.computeService = computeService;
-    }
+		cloudLBProvider = cloudConfigProperties.getProperty("loadbalancer-provider");
+		cloudLBAccessKeyId = cloudConfigProperties.getProperty("loadbalancer-accesskeyid");
+		cloudLBSecretKey = cloudConfigProperties.getProperty("loadbalancer-secretkey");
 
-    public LoadBalancerService getLoadBalancerService() {
-        return loadBalancerService;
-    }
+		String provider = cloudConfigProperties.getProperty("provider");
 
-    public void setLoadBalancerService(LoadBalancerService loadBalancerService) {
-        this.loadBalancerService = loadBalancerService;
-    }
+		CONSOLE_LOG.info("Connecting to {} Cloud API", provider);
+
+		try {
+			if ("aws".equals(provider)) {
+				this.driver = new AWSDriver(cloudComputeAccessKeyId, cloudComputeSecretKey, cloudLBAccessKeyId, cloudLBSecretKey,
+						cloudComputeProvider, cloudLBProvider, cloudConfigFile);
+			} else if ("rackspace-uk".equals(provider)) {
+				this.driver = new RackspaceUKDriver(cloudComputeAccessKeyId, cloudComputeSecretKey, cloudLBAccessKeyId, cloudLBSecretKey,
+						cloudComputeProvider, cloudLBProvider, cloudConfigFile);
+			} else {
+				this.driver = new GenericDriver(cloudComputeAccessKeyId, cloudComputeSecretKey, cloudLBAccessKeyId, cloudLBSecretKey,
+						cloudComputeProvider, cloudLBProvider, cloudConfigFile);
+			}
+		} catch (CreationException e) {
+			/*
+			 * Guava exceptions are already formatted, but not in a way we want.
+			 * We unpack and reformat.
+			 */
+			Set<String> causes = Sets.newLinkedHashSet();
+			for (Message m : e.getErrorMessages()) {
+				final Throwable rootCause = Throwables.getRootCause(m.getCause());
+				causes.add(rootCause.toString());
+			}
+			CONSOLE_LOG.error("An unexpected error occurred while connecting to the Cloud API: " + causes);
+			throw new RuntimeException(causes.toString());
+		}
+	}
+
+	/**
+	 * @return the driver
+	 */
+	public Driver getDriver() {
+		return driver;
+	}
+
+	/**
+	 * Close associated resources at end of life.
+	 */
+	public void close() {
+		driver.close();
+	}
 }
